@@ -57,12 +57,22 @@ export default function ReelsViewer({ cards, pdfFile, onReset }: ReelsViewerProp
     }
   };
 
-  // 터치 이벤트 처리 (모바일)
+  // 터치 이벤트 처리 (모바일) - 텍스트 박스 외부에서만 작동
   const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
+    // 텍스트 박스 내부가 아닌 경우에만 처리
+    const target = e.target as HTMLElement;
+    const isContentArea = target.closest('.content-area');
+    if (!isContentArea) {
+      touchStartY.current = e.touches[0].clientY;
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
+    // 텍스트 박스 내부가 아닌 경우에만 처리
+    const target = e.target as HTMLElement;
+    const isContentArea = target.closest('.content-area');
+    if (isContentArea) return;
+
     touchEndY.current = e.changedTouches[0].clientY;
     const diff = touchStartY.current - touchEndY.current;
     const threshold = 50;
@@ -140,12 +150,79 @@ interface CardProps {
 
 function Card({ card, index, isActive, totalCards, pdfFile }: CardProps) {
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const touchStartY = useRef<number>(0);
+  const touchStartScrollTop = useRef<number>(0);
 
   const handlePageClick = () => {
     if (card.pageNumber && pdfFile) {
       setIsPdfViewerOpen(true);
     }
   };
+
+  // 텍스트 박스 내부 터치 시작
+  const handleContentTouchStart = (e: React.TouchEvent) => {
+    if (contentRef.current) {
+      touchStartY.current = e.touches[0].clientY;
+      touchStartScrollTop.current = contentRef.current.scrollTop;
+      e.stopPropagation(); // 카드 스크롤로 전파 방지
+    }
+  };
+
+  // 텍스트 박스 내부 터치 이동
+  const handleContentTouchMove = (e: React.TouchEvent) => {
+    if (!contentRef.current) return;
+
+    const touchY = e.touches[0].clientY;
+    const diff = touchStartY.current - touchY;
+    const scrollTop = contentRef.current.scrollTop;
+    const scrollHeight = contentRef.current.scrollHeight;
+    const clientHeight = contentRef.current.clientHeight;
+
+    // 스크롤 가능 여부 확인
+    const canScrollUp = scrollTop > 0;
+    const canScrollDown = scrollTop < scrollHeight - clientHeight - 1;
+
+    // 위로 스크롤하려고 할 때
+    if (diff < 0 && canScrollUp) {
+      e.stopPropagation(); // 카드 스크롤 방지
+      return;
+    }
+
+    // 아래로 스크롤하려고 할 때
+    if (diff > 0 && canScrollDown) {
+      e.stopPropagation(); // 카드 스크롤 방지
+      return;
+    }
+
+    // 스크롤이 끝에 도달했을 때만 카드 스크롤 허용
+    if ((diff < 0 && !canScrollUp) || (diff > 0 && !canScrollDown)) {
+      // 카드 스크롤 허용 (stopPropagation 호출 안 함)
+    }
+  };
+
+  // 텍스트 박스 내부 휠 이벤트 처리
+  const handleContentWheel = (e: React.WheelEvent) => {
+    if (!contentRef.current) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = contentRef.current;
+    const deltaY = e.deltaY;
+
+    // 위로 스크롤
+    if (deltaY < 0 && scrollTop > 0) {
+      e.stopPropagation(); // 카드 스크롤 방지
+      return;
+    }
+
+    // 아래로 스크롤
+    if (deltaY > 0 && scrollTop < scrollHeight - clientHeight - 1) {
+      e.stopPropagation(); // 카드 스크롤 방지
+      return;
+    }
+
+    // 스크롤이 끝에 도달했을 때만 카드 스크롤 허용
+  };
+
   return (
     <div className="h-[100svh] w-full snap-start flex items-center justify-center p-6">
       <motion.div
@@ -175,10 +252,14 @@ function Card({ card, index, isActive, totalCards, pdfFile }: CardProps) {
 
         {/* 본문 */}
         <motion.div
+          ref={contentRef}
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.5 }}
-          className="mb-6 flex-1 overflow-y-auto"
+          className="content-area mb-6 flex-1 overflow-y-auto"
+          onTouchStart={handleContentTouchStart}
+          onTouchMove={handleContentTouchMove}
+          onWheel={handleContentWheel}
         >
           <div className="text-gray-200 text-base md:text-[1.5rem] leading-relaxed">
             {card.content.split('\n').map((line, i) => 
